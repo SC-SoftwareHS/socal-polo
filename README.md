@@ -8,6 +8,28 @@ and venue directions.
 
 Static site, no build step. Serve the folder (GitHub Pages works) and open `index.html`.
 
+## Adding a tournament from a link (server mode)
+
+Run the server and open the site through it:
+
+```
+node server/index.js            # http://localhost:8788
+```
+
+The home page gains an **Add a tournament** box. Paste any public Google Sheet link. The server
+fetches every tab, asks Claude (through the `claude` CLI, or the Messages API when
+`ANTHROPIC_API_KEY` is set) to describe the layout as a *cell map*: which cells hold each game's
+teams, score, time and site, and which cells seed each pool. That map is stored in
+`server/data/tournaments.json`; from then on the browser re-reads exactly those cells from the live
+sheet every minute, so scores and next-round matchups stream through with no further model calls.
+Mapping takes 2–5 minutes and has cost $0.35–$0.70 per sheet with Sonnet.
+
+Each mapped tournament gets **Re-map layout** (organizer restructured the sheet) and **Remove**
+buttons. `POLO_MAP_MODEL` picks the model (default `sonnet`). API: `GET /api/manifest`,
+`POST /api/add {url,name?,start?}`, `POST /api/remap/:id`, `DELETE /api/tournament/:id`.
+
+On the Beelink this runs as the `socal-polo` systemd user service on port 8788.
+
 ## Data sources
 
 `data/manifest.js` lists every tournament and where its schedule lives. Each entry names a
@@ -18,6 +40,7 @@ model (divisions → pools + games) that the UI renders. Adapters today:
 |------|-------|---------|
 | `sheet-tabs` | public Google Sheet, one tab per division (pools at the top, day tables below, optional rebracket) | 2026 Fall Classic |
 | `sheet-southcoast` | the Newport Harbor "Schedule" tab layout (site brackets side by side, placement blocks) | 2026 Boys South Coast |
+| `cellmap` | any public Google Sheet, via a Claude-generated cell map (see above) | everything added through the server |
 | `static` | `data/<id>.js` produced by `tools/import-static.js` from CSV exports | Excel/PDF schedules |
 | `pending` | nothing yet, shows a "needs source" card | Champions Cup until a link is supplied |
 
@@ -46,6 +69,8 @@ Star teams on the Teams tab, or share a link that pre-follows a club:
 ```
 node tools/test-fall-classic.js            # parses test-data/fall-classic/*.csv and prints every game
 node tools/test-south-coast.js             # same for test-data/south-coast.csv
+node tools/test-cellmap.js <entry.json>    # fetch a mapped tournament's sheet live and print what the cell map reads
+node server/mapper.js <sheet-url> [start]  # run the Claude mapping step by hand and print the entry
 ```
 
 Refresh the fixtures with the current sheets:

@@ -8,12 +8,65 @@
   const M = window.PoloModel, ADAPTERS = window.PoloAdapters || {}, MANIFEST = window.POLO_MANIFEST || [];
   const { esc, norm, fmtTime, fmtDate, fmtRange } = M;
   const REFRESH_MS = 60 * 1000, GAME_MINUTES = 45;
+  const localISO = d => { d = d || new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
   const store = {
     get(k, d) { try { const v = localStorage.getItem(k); return v == null ? d : JSON.parse(v); } catch (e) { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} },
   };
-  const state = { data: {}, timers: {}, favorites: store.get('polo:favorites', {}), route: null };
+  const state = { data: {}, timers: {}, favorites: store.get('polo:favorites', {}), route: null, server: null, adding: null };
+
+  /* ---------- server-managed tournaments (optional) ---------- */
+  async function syncServer() {
+    try {
+      const res = await fetch('api/manifest', { cache: 'no-store' });
+      if (!res.ok) throw new Error(res.status);
+      const { tournaments } = await res.json();
+      state.server = true;
+      for (const t of tournaments) {
+        const i = MANIFEST.findIndex(x => x.id === t.id);
+        if (i >= 0) MANIFEST[i] = t; else MANIFEST.unshift(t);
+      }
+    } catch (e) { state.server = state.server || false; }
+  }
+  async function api(method, path, body) {
+    const res = await fetch(path, { method, headers: { 'content-type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+    return data;
+  }
+  async function addTournament(form) {
+    const body = { url: form.url.value.trim(), name: form.name.value.trim() || undefined, start: form.start.value || undefined };
+    if (!body.url) return;
+    state.adding = { since: Date.now(), error: null }; render();
+    const tick = setInterval(() => { const el = document.getElementById('addProgress'); if (el) el.textContent = progressText(); }, 1000);
+    try {
+      const { entry, stats } = await api('POST', 'api/add', body);
+      clearInterval(tick); state.adding = null;
+      await syncServer();
+      delete state.data[entry.id];
+      location.hash = href(entry);
+      if (stats.warnings && stats.warnings.length) console.warn('mapping warnings', stats.warnings);
+    } catch (e) { clearInterval(tick); state.adding = { since: 0, error: e.message }; render(); }
+  }
+  function progressText() {
+    const s = Math.round((Date.now() - state.adding.since) / 1000);
+    const step = s < 8 ? 'Reading the sheet tabs…' : s < 240 ? 'Claude is working out the layout (this usually takes 2–5 minutes)…' : 'Still mapping — big sheets take a while…';
+    return `${step} ${s}s`;
+  }
+  async function remapTournament(t) {
+    if (!confirm('Re-read this sheet\'s layout with Claude? Takes a few minutes.')) return;
+    state.adding = { since: Date.now(), error: null, remap: t.id }; render();
+    const tick = setInterval(() => { const el = document.getElementById('addProgress'); if (el) el.textContent = progressText(); }, 1000);
+    try { await api('POST', `api/remap/${t.id}`, {}); clearInterval(tick); state.adding = null; await syncServer(); delete state.data[t.id]; store.set('polo:cache:' + t.id, null); render(); }
+    catch (e) { clearInterval(tick); state.adding = { since: 0, error: e.message }; render(); }
+  }
+  async function removeTournament(t) {
+    if (!confirm(`Remove "${t.name}" from the board?`)) return;
+    await api('DELETE', `api/tournament/${t.id}`);
+    const i = MANIFEST.findIndex(x => x.id === t.id); if (i >= 0) MANIFEST.splice(i, 1);
+    location.hash = '#/';
+  }
 
   /* ---------- favorites ("My Team") ---------- */
   const favsOf = tid => state.favorites[tid] || [];
@@ -81,7 +134,7 @@
 
   /* ---------- derived ---------- */
   function tournamentPhase(t) {
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localISO();
     if (t.status === 'pending') return 'pending';
     if (t.start && t.end && today >= t.start && today <= t.end) return 'live';
     if (t.start && today < t.start) return 'upcoming';
@@ -163,11 +216,23 @@
         <div class="counts">${esc(counts)}</div></a>`;
     };
     const section = (title, list) => list.length ? `<div class="section-title">${title}</div><div class="grid">${list.map(card).join('')}</div>` : '';
+    const addBox = state.server ? `
+      <div class="card add-card"><div class="card-h"><span class="card-t">Add a tournament</span><span class="card-s">Paste the organizer's Google Sheet link. Claude maps the layout once; scores then stream live.</span></div>
+      ${state.adding && !state.adding.error ? `<div class="empty"><span class="spinner"></span> <span id="addProgress">${progressText()}</span></div>` : `
+      <form class="add-form" id="addForm">
+        <input name="url" type="url" required placeholder="https://docs.google.com/spreadsheets/d/…" aria-label="Google Sheet link">
+        <input name="name" type="text" placeholder="Tournament name (optional)" aria-label="Tournament name">
+        <input name="start" type="date" aria-label="Start date (optional)" title="Start date (optional)">
+        <button class="btn primary" type="submit">Map it</button>
+      </form>${state.adding && state.adding.error ? `<div class="note warn">${esc(state.adding.error)}</div>` : ''}
+      <div class="card-s" style="padding:0 14px 12px">The sheet must be shared as “Anyone with the link can view”. Mapping takes a few minutes and costs well under a dollar.</div>`}</div>` : '';
     app.innerHTML = `
       <div class="hero"><h1>Southern California water polo, one bracket board.</h1>
       <p>Every tournament below is read live from its organizer's own schedule sheet, so scores, pool standings and next-round matchups update the moment the table workers type them in.</p></div>
+      ${addBox}
       ${section('Happening now', groups.live)}${section('Coming up', groups.upcoming)}${section('Completed', groups.completed)}${section('Waiting on a schedule source', groups.pending)}`;
-    foot.innerHTML = `Add a tournament by listing its schedule in <code>data/manifest.js</code>. Sources supported today: Google Sheets in the Fall Classic tab layout and the South Coast layout, plus static imports.`;
+    foot.innerHTML = state.server ? `Tournaments added here are mapped by Claude and re-read from their sheets every minute.` : `Add a tournament by listing its schedule in <code>data/manifest.js</code>, or run the server (<code>node server/index.js</code>) to add sheets from this page.`;
+    const f = document.getElementById('addForm'); if (f) f.onsubmit = ev => { ev.preventDefault(); addTournament(f); };
     // Warm the cards for live events.
     groups.live.concat(groups.upcoming).forEach(t => { const e = entry(t.id); if (e.status === 'idle' && t.source.type !== 'pending') { if (!restoreCache(t)) { /* nothing cached */ } load(t, false); } });
   }
@@ -206,7 +271,11 @@
         <div class="sync" id="sync"><span class="dot"></span><span class="sync-text"></span>
           ${t.source.type !== 'pending' ? '<button class="btn" id="refreshBtn" type="button">Refresh</button>' : ''}
           ${t.sheetUrl ? `<a class="btn" href="${esc(t.sheetUrl)}" target="_blank" rel="noopener">Open source sheet</a>` : ''}
+          ${t.managed && state.server ? `<button class="btn" id="remapBtn" type="button" title="Mapped ${esc(t.mappedAt ? new Date(t.mappedAt).toLocaleString() : '')}">Re-map layout</button><button class="btn" id="removeBtn" type="button">Remove</button>` : ''}
         </div>
+        ${state.adding && state.adding.remap === t.id && !state.adding.error ? `<div class="note"><span class="spinner"></span> <span id="addProgress">${progressText()}</span></div>` : ''}
+        ${state.adding && state.adding.remap === t.id && state.adding.error ? `<div class="note warn">${esc(state.adding.error)}</div>` : ''}
+        ${t.warnings && t.warnings.length ? `<div class="note warn"><strong>Mapping notes:</strong> ${esc(t.warnings.join(' · '))}</div>` : ''}
       </div>`;
 
     if (t.source.type === 'pending') {
@@ -241,6 +310,8 @@
 
   function wire(t) {
     const b = document.getElementById('refreshBtn'); if (b) b.onclick = () => load(t, true);
+    const rm = document.getElementById('remapBtn'); if (rm) rm.onclick = () => remapTournament(t);
+    const rv = document.getElementById('removeBtn'); if (rv) rv.onclick = () => removeTournament(t);
     app.querySelectorAll('[data-fav]').forEach(el => el.onclick = ev => { ev.preventDefault(); toggleFav(t.id, el.dataset.fav); });
     app.querySelectorAll('[data-unfav]').forEach(el => el.onclick = () => removeFav(t.id, el.dataset.unfav));
     const f = document.getElementById('favForm'); if (f) f.onsubmit = ev => { ev.preventDefault(); const i = f.querySelector('input'); addFav(t.id, i.value); i.value = ''; };
@@ -285,7 +356,7 @@
   }
   function renderSchedule(t, m, div, r) {
     const days = dayList(div);
-    const today = new Date().toISOString().slice(0, 10);
+    const today = localISO();
     let sel = r.day || null;
     if (!sel) { const d = days.find(x => x.date === today) || days.find(x => div.games.some(g => g.day === x.day && gameState(g) !== 'final')) || days[0]; sel = d ? String(d.day) : 'all'; }
     const sub = `<div class="subtabs">${days.map(d => `<button type="button" class="subtab ${sel === String(d.day) ? 'active' : ''}" data-day="${d.day}">Day ${d.day}<small>${esc(d.date ? fmtDate(d.date) : d.label)}</small></button>`).join('')}<button type="button" class="subtab ${sel === 'all' ? 'active' : ''}" data-day="all">All<small>${div.games.length} games</small></button></div>`;
@@ -367,4 +438,5 @@
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && state.route && state.route.t) load(state.route.t, false); });
   setInterval(() => { if (state.route && state.route.page === 'tournament') render(); }, 30 * 1000);   // keep "In progress" honest between fetches
   render();
+  syncServer().then(() => render());
 })();

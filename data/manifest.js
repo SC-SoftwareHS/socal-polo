@@ -26,6 +26,7 @@ window.POLO_MANIFEST = [
       tabs: ['10U OPEN', '12U Boys/Coed', '12U Girls', '14U girls', '14U Boys A', '14U Boys B/Coed', '16U Girls', '18U Girls'],
     },
     venues: [
+      { match: 'rancho bernardo|\\brb\\b', name: 'Rancho Bernardo High School', address: '13010 Paseo Lucido, San Diego, CA 92128' },
       { match: 'westview',            name: 'Westview High School',           address: '13500 Camino Del Sur, San Diego, CA 92129' },
       { match: 'granite',             name: 'Granite Hills High School',      address: '1719 E Madison Ave, El Cajon, CA 92019' },
       { match: 'coronado|bbmac',      name: 'Coronado BBMAC',                 address: '818 6th St, Coronado, CA 92118' },
