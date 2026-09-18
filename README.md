@@ -18,7 +18,7 @@ model (divisions → pools + games) that the UI renders. Adapters today:
 |------|-------|---------|
 | `sheet-tabs` | public Google Sheet, one tab per division (pools at the top, day tables below, optional rebracket) | 2026 Fall Classic |
 | `sheet-southcoast` | the Newport Harbor "Schedule" tab layout (site brackets side by side, placement blocks) | 2026 Boys South Coast |
-| `static` | `data/<id>.js` produced by `tools/import-static.js` from CSV exports | Excel/OneDrive schedules such as KAP7 |
+| `static` | `data/<id>.js` produced by `tools/import-static.js` from CSV exports | Excel/PDF schedules |
 | `pending` | nothing yet, shows a "needs source" card | Champions Cup until a link is supplied |
 
 Google Sheets are fetched straight from the browser every 60 seconds (`gviz` CSV export by tab

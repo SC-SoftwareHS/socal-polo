@@ -54,17 +54,6 @@ window.POLO_MANIFEST = [
     ],
   },
   {
-    id: '2026-kap7-back-to-school',
-    name: '2026 KAP7 Back to School',
-    start: '2026-09-12', end: '2026-09-13',
-    location: 'Irvine & Tustin, CA',
-    organizer: 'KAP7',
-    status: 'pending',
-    sheetUrl: 'https://1drv.ms/x/c/6f253ef3afcfe1c8/IQDxf4RdL6DCQKxhqExGwLVmAZ6t8cN9vpwkB_z3c_K54Ss?e=HuiYAD',
-    source: { type: 'pending', note: 'KAP7 publishes this schedule as an Excel file on OneDrive, which browsers cannot read directly. Import it once with tools/import-static.js, or ask KAP7 for a Google Sheet link.' },
-    venues: [],
-  },
-  {
     id: '2026-champions-cup',
     name: '2026 Champions Cup',
     start: null, end: null,
