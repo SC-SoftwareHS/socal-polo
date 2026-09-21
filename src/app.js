@@ -262,12 +262,18 @@
 
     const divs = m ? m.divisions : [];
     const teamCount = divs.reduce((n, d) => n + teamsOf(d).length, 0), gameCount = divs.reduce((n, d) => n + d.games.length, 0);
-    const meta = [fmtRange(t.start, t.end) || 'Dates TBA', t.location, m ? `${divs.length} division${divs.length === 1 ? '' : 's'} · ${teamCount} teams · ${gameCount} games` : ''].filter(Boolean).join(' · ');
+    const meta = [fmtRange(t.start, t.end) || 'Dates TBA', t.location, t.organizer ? `Hosted by ${t.organizer}` : ''].filter(Boolean).join(' · ');
     const head = `
       <div class="thead">
         <a class="crumb" href="#/">← All tournaments</a>
+        <div class="eyebrow">Tournament central</div>
         <h1>${esc(t.name)}</h1>
-        <div class="meta">${esc(meta)}${t.organizer ? ` · Organized by ${esc(t.organizer)}` : ''}</div>
+        <div class="meta">${esc(meta)}</div>
+        ${m ? `<div class="event-stats">
+          <div class="event-stat"><strong>${divs.length}</strong><span>Divisions</span></div>
+          <div class="event-stat"><strong>${teamCount}</strong><span>Teams</span></div>
+          <div class="event-stat"><strong>${gameCount}</strong><span>Games</span></div>
+        </div>` : ''}
         <div class="sync" id="sync"><span class="dot"></span><span class="sync-text"></span>
           ${t.source.type !== 'pending' ? '<button class="btn" id="refreshBtn" type="button">Refresh</button>' : ''}
           ${t.sheetUrl ? `<a class="btn" href="${esc(t.sheetUrl)}" target="_blank" rel="noopener">Open source sheet</a>` : ''}
@@ -300,9 +306,9 @@
       const views = [['schedule', 'Schedule'], ['standings', 'Standings'], ['playoffs', 'Playoffs'], ['teams', 'Teams'], ['venues', 'Venues']];
       const tabs = `<nav class="tabs">${views.map(([id, label]) => `<a class="tab ${r.view === id ? 'active' : ''}" href="${href(t, div.id, id)}">${label}</a>`).join('')}</nav>`;
       const panel = { schedule: renderSchedule, standings: renderStandings, playoffs: renderPlayoffs, teams: renderTeams, venues: renderVenues }[r.view] || renderSchedule;
-      body = tabs + panel(t, m, div, r);
+      body = `<div class="nav-deck">${chips}${tabs}</div>` + panel(t, m, div, r);
     }
-    app.innerHTML = head + chips + body;
+    app.innerHTML = head + (r.view === 'mine' ? `<div class="nav-deck">${chips}</div>` : '') + body;
     renderSync(t); wire(t);
     const notes = (m.notes || []).filter(Boolean);
     foot.innerHTML = `Read live from <a href="${esc(t.sheetUrl)}" target="_blank" rel="noopener">the organizer's sheet</a> and re-checked every minute. Names tagged <em>auto</em> were worked out from entered scores before the organizer filled them in. Cap colors: <span class="cap white" style="display:inline-block;vertical-align:middle"></span> white, <span class="cap dark" style="display:inline-block;vertical-align:middle"></span> dark.${notes.length ? `<br><span style="color:var(--live)">Parser notes: ${esc(notes.join(' · '))}</span>` : ''}`;
