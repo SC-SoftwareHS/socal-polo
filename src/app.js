@@ -76,13 +76,34 @@
   function toggleFav(tid, name) { favsOf(tid).some(f => f === name) ? removeFav(tid, name) : addFav(tid, name); }
 
   /* ---------- loading ---------- */
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
   async function fetchText(url, fallback) {
-    try {
-      const res = await fetch(url, { cache: 'no-store', credentials: 'omit' });
-      if (res.ok) { const t = await res.text(); if (t && !/^\s*<!doctype html/i.test(t)) return t; }
-    } catch (e) { /* fall through */ }
-    if (fallback) { const res = await fetch(fallback, { cache: 'no-store', credentials: 'omit' }); if (res.ok) return res.text(); }
-    throw new Error('fetch failed');
+    let last;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const sep = url.includes('?') ? '&' : '?';
+        const res = await fetch(`${url}${sep}attempt=${attempt}-${Date.now()}`, { cache: 'no-store', credentials: 'omit' });
+        if (res.ok) {
+          const t = await res.text();
+          if (t && !/^\s*<!doctype html/i.test(t)) return t;
+        }
+        last = new Error(`HTTP ${res.status}`);
+      } catch (e) { last = e; }
+      if (attempt < 2) await wait(350 * (attempt + 1));
+    }
+    if (fallback) {
+      const res = await fetch(fallback, { cache: 'no-store', credentials: 'omit' });
+      if (res.ok) return res.text();
+    }
+    throw last || new Error('fetch failed');
+  }
+  async function fetchInBatches(items, size) {
+    const out = [];
+    for (let i = 0; i < items.length; i += size) {
+      const batch = items.slice(i, i + size);
+      out.push(...await Promise.all(batch.map(u => fetchText(u.url, u.fallback).then(text => [u.key, text]).catch(() => [u.key, null]))));
+    }
+    return out;
   }
   function entry(id) { return state.data[id] || (state.data[id] = { model: null, at: null, status: 'idle', error: null }); }
   function buildFrom(t, csv) {
@@ -97,8 +118,11 @@
     if (!adapter) { e.status = 'error'; e.error = `No adapter for "${t.source.type}"`; render(); return; }
     e.status = 'loading'; renderSync(t);
     try {
-      const urls = adapter.urls(t.source);
-      const pairs = await Promise.all(urls.map(u => fetchText(u.url, u.fallback).then(text => [u.key, text]).catch(() => [u.key, null])));
+      const activeDiv = state.route && state.route.t && state.route.t.id === t.id ? state.route.div : '';
+      const urls = adapter.urls(t.source).sort((a, b) => (norm(b.key) === activeDiv) - (norm(a.key) === activeDiv));
+      // Google intermittently throttles a burst of nine cross-origin CSV requests.
+      // Fetch the active division first and keep concurrency deliberately low.
+      const pairs = await fetchInBatches(urls, 3);
       if (pairs.every(p => p[1] == null)) throw new Error('unreachable');
       const csv = Object.fromEntries(pairs);
       const model = buildFrom(t, csv);
